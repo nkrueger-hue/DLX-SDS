@@ -222,14 +222,16 @@ HTML = """
         .ghs-icon {
             width: 36px;
             height: 36px;
-            flex-shrink: 0;
-            position: relative;
-        }
-        .ghs-icon svg {
-            width: 100%;
-            height: 100%;
-            object-fit: contain;
-        }
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            }
+
+        .ghs-icon img {
+            max-width: 100%;
+            max-height: 100%;
+            }
+            
         .ghs-icon:hover::after {
             content: attr(data-label);
             position: absolute;
