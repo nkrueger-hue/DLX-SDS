@@ -284,6 +284,11 @@ HTML = """
             flex: 1;
             min-width: 0;
         }
+
+        /* ── Mobile: hide left margin and QR button ── */
+        @media (max-width: 640px) {
+            .left-margin { display: none; }
+        }
     </style>
 </head>
 <body>
