@@ -4,6 +4,8 @@ import os
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PDF_FOLDER = os.path.join(BASE_DIR, "sdsfiles")
+QR_FOLDER = os.path.join(BASE_DIR, "qrcodes")
+QR_FILENAME = "DLX SDS QR Sheet.pdf"
 DB_PATH = os.path.join(BASE_DIR, "sds.db")
 
 app = Flask(__name__)
@@ -239,6 +241,49 @@ HTML = """
             font-family: 'DM Sans', sans-serif;
             z-index: 10;
         }
+
+        /* ── Page layout with left margin ── */
+        .page-body {
+            display: flex;
+            align-items: flex-start;
+        }
+        .left-margin {
+            width: 180px;
+            flex-shrink: 0;
+            padding: 24px 16px;
+            position: sticky;
+            top: 64px;
+            height: calc(100vh - 64px);
+        }
+        .btn-dl {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px 14px;
+            color: var(--muted);
+            text-decoration: none;
+            font-size: 13px;
+            font-weight: 500;
+            font-family: 'DM Sans', sans-serif;
+            transition: color 0.15s, border-color 0.15s, background 0.15s;
+            width: 100%;
+        }
+        .btn-dl:hover {
+            color: var(--text);
+            border-color: var(--red);
+            background: var(--surface);
+        }
+        .btn-dl svg {
+            flex-shrink: 0;
+            opacity: 0.7;
+        }
+        .main-content {
+            flex: 1;
+            min-width: 0;
+        }
     </style>
 </head>
 <body>
@@ -258,6 +303,20 @@ HTML = """
     {% endif %}
 </form>
 
+<div class="page-body">
+
+<div class="left-margin">
+    <a class="btn-dl" href="/download-qr" download>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        Download QR Code
+    </a>
+</div>
+
+<div class="main-content">
 <div class="container">
 
     {% if query %}
@@ -302,7 +361,9 @@ HTML = """
         </a>
     {% endfor %}
 
-</div>
+</div>{# end .container #}
+</div>{# end .main-content #}
+</div>{# end .page-body #}
 
 </body>
 </html>
@@ -407,6 +468,14 @@ def view_sds(sds_id):
     <iframe src="/pdf/{sds_id}"></iframe>
 </body>
 </html>"""
+
+
+@app.route("/download-qr")
+def download_qr():
+    file_path = os.path.join(QR_FOLDER, QR_FILENAME)
+    if not os.path.exists(file_path):
+        return "QR code file not found", 404
+    return send_file(file_path, mimetype="application/pdf", as_attachment=True, download_name=QR_FILENAME)
 
 
 if __name__ == "__main__":
