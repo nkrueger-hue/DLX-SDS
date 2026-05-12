@@ -1,6 +1,4 @@
-from dotenv import load_dotenv
 from flask.sansio.app import App
-load_dotenv()
 import sqlite3
 from flask import Flask, make_response, render_template_string, request, send_file
 import os
