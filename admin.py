@@ -45,31 +45,26 @@ admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
 # ── Classifier stub ───────────────────────────────────────────────────────────
 # Replace this with `from classifier import classify` once you have the module.
 
-def classify(content: str) -> str:
-    """Rule-based category classifier (stub – replace with your own)."""
-    text = content.lower()
-    if any(k in text for k in ("flammable", "flash point", "ignition")):
-        return "Flammable"
-    if any(k in text for k in ("corrosive", "acid", "alkali", "ph")):
-        return "Corrosive"
-    if any(k in text for k in ("toxic", "lethal", "ld50", "poison")):
-        return "Toxic"
-    if any(k in text for k in ("oxidiz", "oxidis", "peroxide")):
-        return "Oxidizing"
-    if any(k in text for k in ("irritant", "skin irritation", "eye irritation")):
-        return "Irritant"
-    if any(k in text for k in ("compressed gas", "aerosol", "liquefied gas")):
-        return "Compressed Gas"
-    if any(k in text for k in ("health hazard", "carcinogen", "mutagen", "reproductive")):
-        return "Health Hazard"
-    if any(k in text for k in ("environment", "aquatic", "ecotoxic")):
-        return "Environmental"
-    return "Uncategorized"
+# With this:
+from backfill_categories import classify as _bc_classify
 
-KNOWN_CATEGORIES = [
-    "Uncategorized", "Flammable", "Corrosive", "Toxic",
-    "Oxidizing", "Irritant", "Compressed Gas", "Health Hazard", "Environmental",
-]
+def classify(content: str, file_name: str = "") -> str:
+    return _bc_classify(file_name, content)
+
+def get_known_categories(conn) -> list[str]:
+    """Pull live category list from the categories table, falling back to column values."""
+    try:
+        rows = conn.execute("SELECT name FROM categories ORDER BY name").fetchall()
+        if rows:
+            return ["Uncategorized"] + [r["name"] for r in rows if r["name"] != "Uncategorized"]
+    except Exception:
+        pass
+    # Fallback: distinct values already in the category column
+    rows = conn.execute(
+        "SELECT DISTINCT category FROM sds WHERE category IS NOT NULL ORDER BY category"
+    ).fetchall()
+    return [r["category"] for r in rows] or ["Uncategorized"]
+
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
 
@@ -87,6 +82,12 @@ def migrate():
         cur.execute("ALTER TABLE sds ADD COLUMN category TEXT DEFAULT 'Uncategorized'")
     if "manually_overridden" not in existing:
         cur.execute("ALTER TABLE sds ADD COLUMN manually_overridden INTEGER DEFAULT 0")
+    cur.execute("""
+                UPDATE sds
+                SET category = category_raw
+                WHERE category_raw IS NOT NULL
+                AND (category IS NULL OR category = 'Uncategorized')
+                """)
     conn.commit()
     conn.close()
 
@@ -526,7 +527,7 @@ def index():
         total=total,
         overridden=overridden,
         uncategorized=uncategorized,
-        categories=KNOWN_CATEGORIES,
+        categories=get_known_categories(conn),
         selected_cat=selected_cat,
         q=q,
     )
@@ -570,7 +571,7 @@ def edit(sds_id):
     return render_template_string(
         EDIT_HTML,
         row=row,
-        categories=KNOWN_CATEGORIES,
+        categories=get_known_categories(conn),
     )
 
 
@@ -579,10 +580,10 @@ def edit(sds_id):
 def reclassify_one(sds_id):
     conn = get_db()
     cur  = conn.cursor()
-    row  = cur.execute("SELECT content FROM sds WHERE id = ?", (sds_id,)).fetchone()
+    row  = cur.execute("SELECT file_name, content FROM sds WHERE id = ?", (sds_id,)).fetchone()
 
     if row and row["content"]:
-        new_cat = classify(row["content"])
+        new_cat = classify(row["content"], row["file_name"])
         cur.execute(
             "UPDATE sds SET category = ?, manually_overridden = 0 WHERE id = ?",
             (new_cat, sds_id),
@@ -602,13 +603,13 @@ def reclassify_all():
     conn = get_db()
     cur  = conn.cursor()
     rows = cur.execute(
-        "SELECT id, content FROM sds WHERE manually_overridden = 0 OR manually_overridden IS NULL"
+        "SELECT id, file_name, content FROM sds WHERE id = ?",
     ).fetchall()
 
     updated = 0
     for row in rows:
         if row["content"]:
-            new_cat = classify(row["content"])
+            new_cat = classify(row["content"], row["file_name"])
             cur.execute("UPDATE sds SET category = ? WHERE id = ?", (new_cat, row["id"]))
             updated += 1
 
