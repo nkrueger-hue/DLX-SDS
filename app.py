@@ -1,6 +1,10 @@
+from dotenv import load_dotenv
+from flask.sansio.app import App
+load_dotenv()
 import sqlite3
 from flask import Flask, make_response, render_template_string, request, send_file
 import os
+from admin import admin_bp
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PDF_FOLDER = os.path.join(BASE_DIR, "sdsfiles")
@@ -9,6 +13,9 @@ QR_FILENAME = "DLX SDS QR Sheet.pdf"
 DB_PATH = os.path.join(BASE_DIR, "sds.db")
 
 app = Flask(__name__)
+
+app.secret_key = os.environ.get("SECRET_KEY", "change-me-in-prod")
+app.register_blueprint(admin_bp)
 
 # ── GHS pictogram SVG icons ───────────────────────────────────────────────────
 # Official GHS diamond format: white diamond, red fill, white inner field, black symbol.
