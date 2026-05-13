@@ -46,173 +46,10 @@ admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
 # Replace this with `from classifier import classify` once you have the module.
 
 # With this:
-import re
+from backfill_categories import classify as _bc_classify
 
-CONTENT_SNIPPET_LEN = 400
-
-CATEGORY_RULES = [
-    ("Motor Oils",          ["motor oil", "engine oil", "5w-", "5w30", "5w20", "0w-", "10w-",
-                             "10w30", "10w40", "15w-", "synthetic oil", "gtx", "pennzoil",
-                             "mobil 1", "valvoline", "quaker state", "delo", "rotella",
-                             "2 cycle oil", "two cycle oil", "bar and chain oil",
-                             "chain oil", "compressor oil", "defrix oil", "marvel lubricating",
-                             "pump armor"]),
-
-    ("Transmission Fluids", ["transmission fluid", "atf ", "atf+", "dexron", "mercon",
-                              "cvt fluid", "power steering fluid", "power steer"]),
-
-    ("Brake Fluids",        ["brake fluid", "dot 3", "dot 4", "dot 5", "dot3", "dot4", "dot5",
-                              "hydraulic brake"]),
-
-    ("Antifreeze & Coolants", ["antifreeze", "anti-freeze", "coolant", "cool guard",
-                                "dex-cool", "ethylene glycol", "propylene glycol",
-                                "radiator fluid", "peak", "zerex", "prestone"]),
-
-    ("Hydraulic Fluids",    ["hydraulic fluid", "hydraulic oil", "jack oil", "lift fluid",
-                              "hyd fluid", "hyd oil"]),
-
-    ("Differential & Gear Oils", ["gear oil", "gear lube", "differential fluid", "diff fluid",
-                                   "75w-", "75w90", "80w-", "80w90", "gl-4", "gl-5",
-                                   "limited slip"]),
-
-    ("Refrigerants",        ["refrigerant", "r-134", "r134", "r-1234", "r1234", "freon",
-                              "a/c refrigerant", "ac refrigerant", "hvac refrigerant"]),
-
-    # ── Fuels & propellants ───────────────────────────────────────────────────
-    ("Fuels",               ["gasoline", "diesel fuel", "fuel additive", "fuel system",
-                              "octane booster", "starting fluid", "ether start",
-                              "kerosene", "petroleum naphtha", "propane", "butane",
-                              "lifestyle propane", "bernzomatic", "mag-torch",
-                              "fuel stabilizer"]),
-
-    # ── Gases ─────────────────────────────────────────────────────────────────
-    ("Welding Gases",       ["welding gas", "argon", "carbon dioxide welding", "co2 welding",
-                              "shielding gas", "mig gas", "tig gas", "acetylene",
-                              "welding wire", "anti spatter", "weld spatter", "whale spray"]),
-
-    ("Compressed Gases",    ["compressed gas", "nitrogen", "helium", "co2 cartridge",
-                              "carbon dioxide", "oxygen cylinder", "compressed air",
-                              "aerosol propellant", "oxygen.pdf"]),
-
-    # ── Lubricants & greases ──────────────────────────────────────────────────
-    ("Greases",             ["grease", "chassis lube", "wheel bearing", "bearing lube",
-                              "moly", "lithium grease", "white grease", "nlgi"]),
-
-    ("Lubricants",          ["lubricant", "lube", "wd-40", "wd40", "penetrant",
-                              "multi-purpose lube", "spray lube", "chain lube",
-                              "silicone lube", "ptfe", "teflon lube", "dry lube",
-                              "anti-seize", "anti seize", "thread lube", "clp liquid",
-                              "break-free", "cutting fluid", "rapid tap", "ez break",
-                              "nickel grade"]),
-
-    # ── Cleaning & stripping ──────────────────────────────────────────────────
-    ("Degreasers",          ["degreaser", "degreasing", "parts cleaner", "brake cleaner",
-                              "carburetor cleaner", "carb cleaner", "throttle body cleaner",
-                              "intake cleaner", "engine degreaser", "solvent cleaner",
-                              "mass air flow", "maf cleaner", "electronic cleaner",
-                              "qd electronic", "maintenance cleaner", "mutoh",
-                              "rapid tac", "goof off", "ink remover", "cured ink"]),
-
-    ("Strippers & Removers", ["stripper", "stripping", "stripoxy", "citristrip",
-                               "paint stripper", "paint remover", "graffiti remover",
-                               "adhesive remover", "label remover"]),
-
-    ("Glass Cleaners",      ["glass cleaner", "windshield cleaner", "window cleaner",
-                              "glass wash", "rain-x", "rainx", "windshield washer",
-                              "washer fluid", "windshield fluid"]),
-
-    ("Mechanical Cleaners", ["hand cleaner", "hand soap", "hand wash", "shop soap",
-                              "gojo", "mechanic soap", "waterless cleaner", "fast orange",
-                              "orange clean"]),
-
-    ("Carpet & Fabric Cleaners", ["carpet cleaner", "rug cleaner", "fabric cleaner",
-                                   "upholstery cleaner", "scotchgard", "hoover"]),
-
-    ("Soaps & Cleaners",    ["soap", "detergent", "all-purpose cleaner", "surface cleaner",
-                              "disinfectant", "sanitizer", "floor cleaner", "fabuloso",
-                              "lysol", "toilet bowl", "mold cleaner", "slide mold"]),
-
-    # ── Protective & specialty coatings ───────────────────────────────────────
-    ("Paints & Solvents",   ["paint", "primer", "enamel", "lacquer", "solvent",
-                              "thinner", "reducer", "acetone", "xylene", "toluene",
-                              "mineral spirits", "naphtha", "voc", "behr", "color sample",
-                              "denatured alcohol", "muriatic acid", "klean strip",
-                              "sunnyside"]),
-
-    ("Protective Coatings", ["protectant", "protective coating", "armor all", "303 aerospace",
-                              "plasti dip", "plastidip", "flex seal", "durabak",
-                              "polyurethane coating", "scotchgard", "heat barrier",
-                              "goss heat", "desiccant", "silica gel"]),
-
-    ("Rust Inhibitors",     ["rust", "rustproofing", "rust-oleum", "rustoleum",
-                              "corrosion inhibitor", "rust inhibitor", "rust preventive",
-                              "cavity wax", "undercoat", "surfox", "passivation",
-                              "walter surfox", "copper sulfate"]),
-
-    ("Polishes & Waxes",    ["polish", "wax", "detailer", "car wax", "carnauba",
-                              "paint sealant", "clear coat", "buffing compound",
-                              "rubbing compound", "swirl remover", "meguiar", "turtle wax",
-                              "mothers", "chemical guys", "raytech compound"]),
-
-    # ── Adhesives & sealants ──────────────────────────────────────────────────
-    ("Adhesives & Sealants", ["adhesive", "sealant", "rtv", "silicone sealant",
-                               "gasket maker", "gasket sealer", "thread sealant",
-                               "threadlock", "thread lock", "loctite", "permatex",
-                               "epoxy", "super glue", "cyanoacrylate", "3m adhesive",
-                               "trim adhesive", "weather strip", "contact cement",
-                               "weldwood", "aquaseal", "e-6000", "titebond", "wood glue",
-                               "pvc cement", "pipe cement", "oatey", "harvey pipe",
-                               "pipe thread", "leak lock", "thread compound",
-                               "bondo", "body filler", "filler"]),
-
-    # ── Aerosols ──────────────────────────────────────────────────────────────
-    ("Aerosols",            ["aerosol", "spray can", "spray paint", "touch-up spray",
-                              "pressurized spray"]),
-
-    # ── Batteries ─────────────────────────────────────────────────────────────
-    ("Battery Products",    ["battery", "lead acid", "electrolyte", "battery terminal",
-                              "battery cleaner", "battery protector", "12v battery"]),
-
-    # ── 3D printing materials ─────────────────────────────────────────────────
-    ("3D Printing Materials", ["bambu", "pla", "petg", "abs-gf", "tpu", "filament",
-                                "resin", "liqcreate", "3d print", "fdm", "support for pla"]),
-
-    # ── Pest control ──────────────────────────────────────────────────────────
-    ("Pest Control",        ["insecticide", "pesticide", "herbicide", "bug stop", "roach",
-                              "wasp", "hornet", "ant killer", "rat killer", "mouse killer",
-                              "spectracide", "combat roach", "terro", "tomcat",
-                              "weed killer", "grass killer"]),
-
-    # ── Leather & interior ────────────────────────────────────────────────────
-    ("Leather & Trim Care", ["leather cleaner", "leather conditioner", "leather care",
-                              "leather protect", "vinyl cleaner", "interior cleaner"]),
-
-    # ── First aid & safety ────────────────────────────────────────────────────
-    ("Antiseptics",         ["antiseptic", "isopropyl alcohol", "rubbing alcohol",
-                              "hand sanitizer", "first aid", "hydrogen peroxide"]),
-
-    # ── Misc shop supplies ────────────────────────────────────────────────────
-    ("Deodorizers",         ["deodorizer", "odor", "odour", "air freshener", "ozium",
-                              "odor eliminator"]),
-
-    ("Ice Melt",            ["ice melt", "de-icer", "deicer", "windshield de-icer",
-                              "lock de-icer", "freeze guard"]),
-
-    ("Shop Supplies",       ["rag", "absorbent", "oil dry", "shop towel", "safety solvent",
-                              "mineral oil", "spif", "s.p.i.f"]),
-]
-
-def classify(file_name: str = "", content: str = "") -> str:
-    name_lower    = file_name.lower().replace("_", " ").replace("-", " ")
-    snippet_lower = (content or "")[:CONTENT_SNIPPET_LEN].lower()
-    for category, keywords in CATEGORY_RULES:
-        for kw in keywords:
-            pattern = re.escape(kw)
-            if re.search(pattern, name_lower):
-                return category
-            if re.search(pattern, snippet_lower):
-                return category
-    return "Uncategorized"
+def classify(content: str, file_name: str = "") -> str:
+    return _bc_classify(file_name, content)
 
 def get_known_categories(conn) -> list[str]:
     """Pull live category list from the categories table, falling back to column values."""
@@ -682,6 +519,7 @@ def index():
         f"FROM sds {where} ORDER BY file_name",
         params,
     ).fetchall()
+    categories=get_known_categories(conn),
     conn.close()
 
     return render_template_string(
@@ -690,7 +528,6 @@ def index():
         total=total,
         overridden=overridden,
         uncategorized=uncategorized,
-        categories=get_known_categories(conn),
         selected_cat=selected_cat,
         q=q,
     )
@@ -725,6 +562,7 @@ def edit(sds_id):
         "FROM sds WHERE id = ?",
         (sds_id,),
     ).fetchone()
+    categories=get_known_categories(conn),
     conn.close()
 
     if not row:
@@ -734,7 +572,6 @@ def edit(sds_id):
     return render_template_string(
         EDIT_HTML,
         row=row,
-        categories=get_known_categories(conn),
     )
 
 
