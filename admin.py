@@ -603,7 +603,7 @@ def reclassify_all():
     conn = get_db()
     cur  = conn.cursor()
     rows = cur.execute(
-        "SELECT id, file_name, content FROM sds WHERE id = ?",
+        "SELECT id, file_name, content FROM sds WHERE manually_overridden = 0",
     ).fetchall()
 
     updated = 0
