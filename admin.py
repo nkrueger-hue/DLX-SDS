@@ -56,14 +56,16 @@ def get_known_categories(conn) -> list[str]:
     try:
         rows = conn.execute("SELECT name FROM categories ORDER BY name").fetchall()
         if rows:
-            return ["Uncategorized"] + [r["name"] for r in rows if r["name"] != "Uncategorized"]
+            names = [r["name"] for r in rows if r["name"] != "Uncategorized"]
+            return ["Uncategorized"] + names
     except Exception:
         pass
     # Fallback: distinct values already in the category column
     rows = conn.execute(
-        "SELECT DISTINCT category FROM sds WHERE category IS NOT NULL ORDER BY category"
+        "SELECT DISTINCT category FROM sds WHERE category IS NOT NULL AND category != '' ORDER BY category"
     ).fetchall()
-    return [r["category"] for r in rows] or ["Uncategorized"]
+    cats = [r["category"] for r in rows if r["category"] != "Uncategorized"]
+    return ["Uncategorized"] + cats
 
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
@@ -86,7 +88,9 @@ def migrate():
                 UPDATE sds
                 SET category = category_raw
                 WHERE category_raw IS NOT NULL
-                AND (category IS NULL OR category = 'Uncategorized')
+                  AND category_raw != ''
+                  AND category_raw != 'Uncategorized'
+                  AND (category IS NULL OR category = '' OR category = 'Uncategorized')
                 """)
     conn.commit()
     conn.close()
@@ -545,12 +549,21 @@ def edit(sds_id):
         revision_date = request.form.get("revision_date", "").strip()
         content       = request.form.get("content", "").strip()
 
+        conn2 = get_db()
+        cat_id_row = conn2.execute(
+            "SELECT id FROM categories WHERE name = ?", (category,)
+        ).fetchone()
+        cat_id = cat_id_row["id"] if cat_id_row else None
+        conn2.close()
+
         cur.execute(
             """UPDATE sds
-               SET category = ?, hazard_codes = ?, revision_date = ?,
-                   content = ?, manually_overridden = 1
+               SET category = ?, category_raw = ?, category_id = ?,
+                  hazard_codes = ?, revision_date = ?,
+                  content = ?, manually_overridden = 1
                WHERE id = ?""",
-            (category, hazard_codes or None, revision_date or None, content, sds_id),
+            (category, category, cat_id, hazard_codes or None,
+             revision_date or None, content, sds_id),
         )
         conn.commit()
         conn.close()
