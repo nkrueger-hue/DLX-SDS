@@ -523,7 +523,7 @@ def index():
         f"FROM sds {where} ORDER BY file_name",
         params,
     ).fetchall()
-    categories=get_known_categories(conn),
+    categories = get_known_categories(conn)
     conn.close()
 
     return render_template_string(
@@ -532,6 +532,7 @@ def index():
         total=total,
         overridden=overridden,
         uncategorized=uncategorized,
+        categories=categories,
         selected_cat=selected_cat,
         q=q,
     )
@@ -575,7 +576,7 @@ def edit(sds_id):
         "FROM sds WHERE id = ?",
         (sds_id,),
     ).fetchone()
-    categories=get_known_categories(conn),
+    categories = get_known_categories(conn)
     conn.close()
 
     if not row:
@@ -585,6 +586,7 @@ def edit(sds_id):
     return render_template_string(
         EDIT_HTML,
         row=row,
+        categories=categories,
     )
 
 
