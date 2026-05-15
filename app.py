@@ -1,5 +1,5 @@
 import sqlite3
-from flask import Flask, make_response, render_template_string, request, send_file
+from flask import Flask, make_response, render_template_string, request, send_file, redirect
 import os
 from admin import admin_bp
 
@@ -405,6 +405,15 @@ HTML = """
             </svg>
             Download QR Code
         </a>
+        <a class="btn-dl" href="/inventory">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/>
+                <rect x="9" y="3" width="6" height="4" rx="1"/>
+                <line x1="9" y1="12" x2="15" y2="12"/>
+                <line x1="9" y1="16" x2="13" y2="16"/>
+            </svg>
+            Chemical Inventory
+        </a>
     </div>
 
     <div class="main-content">
@@ -675,6 +684,600 @@ def download_qr():
     if not os.path.exists(file_path):
         return "QR code file not found", 404
     return send_file(file_path, mimetype="application/pdf", as_attachment=True, download_name=QR_FILENAME)
+
+
+INVENTORY_HTML = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chemical Inventory – SDS Database</title>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+            --red:      #8A191B;
+            --red-dark: #6b1315;
+            --bg:       #1a1a1a;
+            --surface:  #242424;
+            --card:     #2c2c2c;
+            --border:   #3a3a3a;
+            --text:     #f0f0f0;
+            --muted:    #888;
+            --accent:   #e8e0d0;
+            --green:    #2a7a4b;
+        }
+        body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+        header {
+            background: var(--red);
+            padding: 0 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            height: 64px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.4);
+        }
+        .header-left { display: flex; align-items: center; gap: 16px; }
+        header h1 { font-size: 18px; font-weight: 600; letter-spacing: 0.04em; color: white; text-transform: uppercase; }
+        .header-back {
+            color: rgba(255,255,255,0.75);
+            text-decoration: none;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            transition: color 0.15s;
+        }
+        .header-back:hover { color: white; }
+        .header-count { font-family: 'DM Mono', monospace; font-size: 12px; color: rgba(255,255,255,0.6); letter-spacing: 0.06em; }
+
+        .toolbar {
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 14px 24px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .search-input {
+            flex: 1;
+            min-width: 200px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 9px 14px;
+            font-family: 'DM Sans', sans-serif;
+            font-size: 14px;
+            color: var(--text);
+            outline: none;
+            transition: border-color 0.15s;
+        }
+        .search-input::placeholder { color: var(--muted); }
+        .search-input:focus { border-color: var(--red); }
+        .btn {
+            border: none;
+            border-radius: 8px;
+            padding: 9px 18px;
+            font-family: 'DM Sans', sans-serif;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: background 0.15s, color 0.15s;
+        }
+        .btn-primary { background: var(--red); color: white; }
+        .btn-primary:hover { background: var(--red-dark); }
+        .btn-secondary { background: var(--card); color: var(--muted); border: 1px solid var(--border); }
+        .btn-secondary:hover { color: var(--text); border-color: var(--muted); }
+        .btn-danger { background: transparent; color: #c0392b; border: 1px solid #c0392b33; font-size: 12px; padding: 5px 10px; border-radius: 6px; }
+        .btn-danger:hover { background: #c0392b22; }
+        .btn-edit { background: transparent; color: var(--muted); border: 1px solid var(--border); font-size: 12px; padding: 5px 10px; border-radius: 6px; }
+        .btn-edit:hover { color: var(--text); border-color: var(--muted); }
+
+        .container { max-width: 1100px; margin: 0 auto; padding: 28px 24px 60px; }
+
+        /* ── Stats strip ── */
+        .stats-strip {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+        }
+        .stat-card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 14px 20px;
+            min-width: 140px;
+        }
+        .stat-label { font-size: 11px; color: var(--muted); font-family: 'DM Mono', monospace; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
+        .stat-value { font-size: 22px; font-weight: 600; color: var(--accent); }
+
+        /* ── Table ── */
+        .table-wrap {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        table { width: 100%; border-collapse: collapse; }
+        thead { background: var(--surface); }
+        th {
+            padding: 12px 16px;
+            text-align: left;
+            font-size: 11px;
+            font-family: 'DM Mono', monospace;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            border-bottom: 1px solid var(--border);
+            white-space: nowrap;
+        }
+        td {
+            padding: 13px 16px;
+            font-size: 14px;
+            border-bottom: 1px solid var(--border);
+            vertical-align: middle;
+        }
+        tr:last-child td { border-bottom: none; }
+        tr:hover td { background: rgba(255,255,255,0.02); }
+        .col-name { font-weight: 500; color: var(--accent); }
+        .col-location { color: var(--muted); font-size: 13px; }
+        .col-qty { font-family: 'DM Mono', monospace; font-size: 13px; }
+        .col-actions { text-align: right; white-space: nowrap; display: flex; gap: 6px; justify-content: flex-end; }
+        .sds-link {
+            font-size: 12px;
+            color: var(--red);
+            text-decoration: none;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+        .sds-link:hover { text-decoration: underline; }
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-family: 'DM Mono', monospace;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            color: var(--muted);
+        }
+        .badge-low { border-color: #c0392b55; color: #e74c3c; background: #c0392b11; }
+        .empty-state { text-align: center; padding: 60px 24px; color: var(--muted); font-size: 15px; }
+
+        /* ── Flash messages ── */
+        .flash { padding: 12px 20px; border-radius: 8px; margin-bottom: 20px; font-size: 14px; }
+        .flash-success { background: #1a3a2a; border: 1px solid #2a7a4b; color: #5cb85c; }
+        .flash-error   { background: #3a1a1a; border: 1px solid #7a2a2a; color: #e74c3c; }
+
+        /* ── Modal ── */
+        .modal-backdrop {
+            display: none;
+            position: fixed; inset: 0;
+            background: rgba(0,0,0,0.65);
+            z-index: 200;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-backdrop.open { display: flex; }
+        .modal {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 28px;
+            width: 100%;
+            max-width: 500px;
+            box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+        }
+        .modal h2 { font-size: 17px; font-weight: 600; margin-bottom: 20px; color: var(--accent); }
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; font-size: 12px; color: var(--muted); font-family: 'DM Mono', monospace; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }
+        .form-control {
+            width: 100%;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 9px 13px;
+            font-family: 'DM Sans', sans-serif;
+            font-size: 14px;
+            color: var(--text);
+            outline: none;
+            transition: border-color 0.15s;
+        }
+        .form-control:focus { border-color: var(--red); }
+        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .form-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 22px; }
+
+        select.form-control option { background: var(--card); }
+
+        @media (max-width: 640px) {
+            .form-row { grid-template-columns: 1fr; }
+            th:nth-child(3), td:nth-child(3) { display: none; }
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="header-left">
+        <a class="header-back" href="/">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+            SDS Database
+        </a>
+        <h1>Chemical Inventory</h1>
+    </div>
+    <span class="header-count">{{ total }} item{% if total != 1 %}s{% endif %}</span>
+</header>
+
+<form method="GET" action="/inventory" class="toolbar">
+    <input class="search-input" type="text" name="q" placeholder="Search chemicals, locations…" value="{{ search_q }}">
+    <button class="btn btn-primary" type="submit">Search</button>
+    {% if search_q %}
+        <a class="btn btn-secondary" href="/inventory">Clear</a>
+    {% endif %}
+    <button class="btn btn-primary" type="button" onclick="openModal()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Add Chemical
+    </button>
+</form>
+
+<div class="container">
+
+    {% if flash_msg %}
+        <div class="flash flash-{{ flash_type }}">{{ flash_msg }}</div>
+    {% endif %}
+
+    <!-- Stats -->
+    <div class="stats-strip">
+        <div class="stat-card">
+            <div class="stat-label">Total Items</div>
+            <div class="stat-value">{{ total }}</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Locations</div>
+            <div class="stat-value">{{ location_count }}</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Low Stock</div>
+            <div class="stat-value" style="color:{% if low_stock_count > 0 %}#e74c3c{% else %}var(--accent){% endif %}">{{ low_stock_count }}</div>
+        </div>
+    </div>
+
+    <!-- Table -->
+    {% if not items %}
+        <div class="empty-state">
+            {% if search_q %}No chemicals found matching "{{ search_q }}".{% else %}No chemicals in inventory yet. Click <strong>Add Chemical</strong> to get started.{% endif %}
+        </div>
+    {% else %}
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Chemical Name</th>
+                    <th>Location</th>
+                    <th>Quantity</th>
+                    <th>Unit</th>
+                    <th>SDS</th>
+                    <th>Notes</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in items %}
+                <tr>
+                    <td class="col-name">{{ item[1] }}</td>
+                    <td class="col-location">{{ item[2] or '—' }}</td>
+                    <td class="col-qty">
+                        {% if item[3] is not none %}
+                            {{ item[3] }}
+                            {% if item[5] and item[3] <= item[5] %}
+                                <span class="badge badge-low">Low</span>
+                            {% endif %}
+                        {% else %}—{% endif %}
+                    </td>
+                    <td><span class="badge">{{ item[4] or '—' }}</span></td>
+                    <td>
+                        {% if item[6] %}
+                            <a class="sds-link" href="/view/{{ item[6] }}" target="_blank">View SDS</a>
+                        {% else %}—{% endif %}
+                    </td>
+                    <td class="col-location" style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="{{ item[7] or '' }}">{{ item[7] or '—' }}</td>
+                    <td>
+                        <div class="col-actions">
+                            <button class="btn-edit btn" onclick="openEditModal({{ item[0] }}, {{ item|tojson }})">Edit</button>
+                            <form method="POST" action="/inventory/delete/{{ item[0] }}" style="display:inline" onsubmit="return confirm('Delete this item?')">
+                                <button class="btn-danger btn" type="submit">Delete</button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+</div>
+
+<!-- Add/Edit Modal -->
+<div class="modal-backdrop" id="modal" onclick="if(event.target===this)closeModal()">
+    <div class="modal">
+        <h2 id="modal-title">Add Chemical</h2>
+        <form method="POST" id="modal-form" action="/inventory/add">
+            <input type="hidden" name="item_id" id="field-id">
+            <div class="form-group">
+                <label>Chemical Name *</label>
+                <input class="form-control" type="text" name="name" id="field-name" required placeholder="e.g. Isopropyl Alcohol">
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Location</label>
+                    <input class="form-control" type="text" name="location" id="field-location" list="location-suggestions" placeholder="e.g. Cabinet A, Shelf 2">
+                    <datalist id="location-suggestions">
+                        {% for loc in locations %}
+                            <option value="{{ loc }}">
+                        {% endfor %}
+                    </datalist>
+                </div>
+                <div class="form-group">
+                    <label>Quantity</label>
+                    <input class="form-control" type="number" name="quantity" id="field-quantity" step="0.01" min="0" placeholder="0">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Unit</label>
+                    <select class="form-control" name="unit" id="field-unit">
+                        <option value="">— select —</option>
+                        <option>gal</option>
+                        <option>L</option>
+                        <option>mL</option>
+                        <option>oz</option>
+                        <option>fl oz</option>
+                        <option>lb</option>
+                        <option>kg</option>
+                        <option>g</option>
+                        <option>drum</option>
+                        <option>pail</option>
+                        <option>can</option>
+                        <option>bottle</option>
+                        <option>case</option>
+                        <option>unit</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Low-Stock Alert At</label>
+                    <input class="form-control" type="number" name="low_stock_threshold" id="field-threshold" step="0.01" min="0" placeholder="e.g. 1">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Link to SDS (optional)</label>
+                <select class="form-control" name="sds_id" id="field-sds">
+                    <option value="">— none —</option>
+                    {% for sds in sds_list %}
+                        <option value="{{ sds[0] }}">{{ sds[1].replace('.pdf','').replace('.PDF','') }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Notes</label>
+                <input class="form-control" type="text" name="notes" id="field-notes" placeholder="Storage conditions, supplier, etc.">
+            </div>
+            <div class="form-actions">
+                <button class="btn btn-secondary" type="button" onclick="closeModal()">Cancel</button>
+                <button class="btn btn-primary" type="submit">Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function openModal() {
+    document.getElementById('modal-title').textContent = 'Add Chemical';
+    document.getElementById('modal-form').action = '/inventory/add';
+    document.getElementById('field-id').value = '';
+    ['name','location','quantity','notes'].forEach(f => document.getElementById('field-'+f).value = '');
+    document.getElementById('field-unit').value = '';
+    document.getElementById('field-threshold').value = '';
+    document.getElementById('field-sds').value = '';
+    document.getElementById('modal').classList.add('open');
+}
+function openEditModal(id, item) {
+    document.getElementById('modal-title').textContent = 'Edit Chemical';
+    document.getElementById('modal-form').action = '/inventory/edit/' + id;
+    document.getElementById('field-id').value = id;
+    document.getElementById('field-name').value = item[1] || '';
+    document.getElementById('field-location').value = item[2] || '';
+    document.getElementById('field-quantity').value = item[3] !== null ? item[3] : '';
+    document.getElementById('field-unit').value = item[4] || '';
+    document.getElementById('field-threshold').value = item[5] !== null ? item[5] : '';
+    document.getElementById('field-sds').value = item[6] || '';
+    document.getElementById('field-notes').value = item[7] || '';
+    document.getElementById('modal').classList.add('open');
+}
+function closeModal() {
+    document.getElementById('modal').classList.remove('open');
+}
+document.addEventListener('keydown', e => { if(e.key === 'Escape') closeModal(); });
+</script>
+
+</body>
+</html>
+"""
+
+
+def init_inventory_db():
+    """Create the chemical_inventory table if it doesn't exist."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS chemical_inventory (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            name                TEXT NOT NULL,
+            location            TEXT,
+            quantity            REAL,
+            unit                TEXT,
+            low_stock_threshold REAL,
+            sds_id              INTEGER,
+            notes               TEXT,
+            created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at          DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+init_inventory_db()
+
+
+@app.route("/inventory")
+def inventory():
+    search_q   = request.args.get("q", "").strip()
+    flash_msg  = request.args.get("msg", "")
+    flash_type = request.args.get("msg_type", "success")
+
+    conn   = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    if search_q:
+        cursor.execute("""
+            SELECT id, name, location, quantity, unit, low_stock_threshold, sds_id, notes
+            FROM chemical_inventory
+            WHERE name LIKE ? OR location LIKE ? OR notes LIKE ?
+            ORDER BY name
+        """, (f"%{search_q}%",) * 3)
+    else:
+        cursor.execute("""
+            SELECT id, name, location, quantity, unit, low_stock_threshold, sds_id, notes
+            FROM chemical_inventory ORDER BY name
+        """)
+    items = cursor.fetchall()
+
+    cursor.execute("SELECT COUNT(*) FROM chemical_inventory")
+    total = cursor.fetchone()[0]
+
+    cursor.execute("SELECT COUNT(DISTINCT location) FROM chemical_inventory WHERE location IS NOT NULL AND location != ''")
+    location_count = cursor.fetchone()[0]
+
+    cursor.execute("""
+        SELECT COUNT(*) FROM chemical_inventory
+        WHERE low_stock_threshold IS NOT NULL AND quantity IS NOT NULL
+          AND quantity <= low_stock_threshold
+    """)
+    low_stock_count = cursor.fetchone()[0]
+
+    cursor.execute("SELECT DISTINCT location FROM chemical_inventory WHERE location IS NOT NULL AND location != '' ORDER BY location")
+    locations = [r[0] for r in cursor.fetchall()]
+
+    cursor.execute("SELECT id, file_name FROM sds ORDER BY file_name")
+    sds_list = cursor.fetchall()
+
+    conn.close()
+
+    return render_template_string(
+        INVENTORY_HTML,
+        items=items,
+        total=total,
+        location_count=location_count,
+        low_stock_count=low_stock_count,
+        locations=locations,
+        sds_list=sds_list,
+        search_q=search_q,
+        flash_msg=flash_msg,
+        flash_type=flash_type,
+    )
+
+
+@app.route("/inventory/add", methods=["POST"])
+def inventory_add():
+    name      = request.form.get("name", "").strip()
+    location  = request.form.get("location", "").strip() or None
+    quantity  = request.form.get("quantity", "").strip() or None
+    unit      = request.form.get("unit", "").strip() or None
+    threshold = request.form.get("low_stock_threshold", "").strip() or None
+    sds_id    = request.form.get("sds_id", "").strip() or None
+    notes     = request.form.get("notes", "").strip() or None
+
+    if not name:
+        return redirect("/inventory?msg=Name+is+required&msg_type=error")
+
+    try:
+        qty_val = float(quantity) if quantity else None
+        thr_val = float(threshold) if threshold else None
+        sid_val = int(sds_id) if sds_id else None
+    except ValueError:
+        return redirect("/inventory?msg=Invalid+number+value&msg_type=error")
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("""
+        INSERT INTO chemical_inventory (name, location, quantity, unit, low_stock_threshold, sds_id, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (name, location, qty_val, unit, thr_val, sid_val, notes))
+    conn.commit()
+    conn.close()
+
+    from urllib.parse import quote
+    return redirect(f"/inventory?msg={quote(name + ' added successfully')}&msg_type=success")
+
+
+@app.route("/inventory/edit/<int:item_id>", methods=["POST"])
+def inventory_edit(item_id):
+    name      = request.form.get("name", "").strip()
+    location  = request.form.get("location", "").strip() or None
+    quantity  = request.form.get("quantity", "").strip() or None
+    unit      = request.form.get("unit", "").strip() or None
+    threshold = request.form.get("low_stock_threshold", "").strip() or None
+    sds_id    = request.form.get("sds_id", "").strip() or None
+    notes     = request.form.get("notes", "").strip() or None
+
+    if not name:
+        return redirect("/inventory?msg=Name+is+required&msg_type=error")
+
+    try:
+        qty_val = float(quantity) if quantity else None
+        thr_val = float(threshold) if threshold else None
+        sid_val = int(sds_id) if sds_id else None
+    except ValueError:
+        return redirect("/inventory?msg=Invalid+number+value&msg_type=error")
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("""
+        UPDATE chemical_inventory
+        SET name=?, location=?, quantity=?, unit=?, low_stock_threshold=?, sds_id=?, notes=?,
+            updated_at=CURRENT_TIMESTAMP
+        WHERE id=?
+    """, (name, location, qty_val, unit, thr_val, sid_val, notes, item_id))
+    conn.commit()
+    conn.close()
+
+    from urllib.parse import quote
+    return redirect(f"/inventory?msg={quote(name + ' updated')}&msg_type=success")
+
+
+@app.route("/inventory/delete/<int:item_id>", methods=["POST"])
+def inventory_delete(item_id):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT name FROM chemical_inventory WHERE id=?", (item_id,))
+    row = cursor.fetchone()
+    if row:
+        conn.execute("DELETE FROM chemical_inventory WHERE id=?", (item_id,))
+        conn.commit()
+    conn.close()
+
+    name = row[0] if row else "Item"
+    from urllib.parse import quote
+    return redirect(f"/inventory?msg={quote(name + ' deleted')}&msg_type=success")
 
 
 if __name__ == "__main__":
