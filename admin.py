@@ -91,6 +91,7 @@ def migrate():
                   AND category_raw != ''
                   AND category_raw != 'Uncategorized'
                   AND (category IS NULL OR category = '' OR category = 'Uncategorized')
+                  AND (manually_overridden = 0 OR manually_overridden IS NULL)
                 """)
     conn.commit()
     conn.close()
