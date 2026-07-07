@@ -220,29 +220,15 @@ def init_schema(conn: sqlite3.Connection) -> None:
     if "category_raw" not in existing_cols:
         cursor.execute("ALTER TABLE sds ADD COLUMN category_raw TEXT")
         print("  + Added category_raw to sds")
-    if "manually_overridden" not in existing_cols:
-        cursor.execute("ALTER TABLE sds ADD COLUMN manually_overridden INTEGER DEFAULT 0")
-        print("  + Added manually_overridden to sds")
     conn.commit()
 
 
 def reset_categories(conn: sqlite3.Connection) -> None:
     cursor = conn.cursor()
-    # Only clear records the admin panel hasn't manually corrected.
-    cursor.execute(
-        "UPDATE sds SET category_id = NULL, category_raw = NULL "
-        "WHERE manually_overridden = 0 OR manually_overridden IS NULL"
-    )
-    # Keep any category still in use by a manually-overridden record.
-    cursor.execute("""
-        DELETE FROM categories
-        WHERE id NOT IN (
-            SELECT category_id FROM sds
-            WHERE category_id IS NOT NULL AND manually_overridden = 1
-        )
-    """)
+    cursor.execute("UPDATE sds SET category_id = NULL, category_raw = NULL")
+    cursor.execute("DELETE FROM categories")
     conn.commit()
-    print("  + Cleared category data for non-overridden records")
+    print("  + Cleared all category data")
 
 
 def get_or_create_category(conn: sqlite3.Connection, name: str) -> int:
@@ -280,18 +266,9 @@ def main() -> None:
         reset_categories(conn)
 
     if args.reset:
-        query = (
-            "SELECT id, file_name, content FROM sds "
-            "WHERE manually_overridden = 0 OR manually_overridden IS NULL "
-            "ORDER BY file_name"
-        )
+        query = "SELECT id, file_name, content FROM sds ORDER BY file_name"
     else:
-        query = (
-            "SELECT id, file_name, content FROM sds "
-            "WHERE category_id IS NULL "
-            "AND (manually_overridden = 0 OR manually_overridden IS NULL) "
-            "ORDER BY file_name"
-        )
+        query = "SELECT id, file_name, content FROM sds WHERE category_id IS NULL ORDER BY file_name"
     if args.limit:
         query += f" LIMIT {args.limit}"
 
@@ -320,13 +297,9 @@ def main() -> None:
 
         if not args.dry_run:
             cat_id = get_or_create_category(conn, category)
-            # Rows reaching here are already guaranteed non-overridden by the
-            # query above, so it's always safe to also update the display
-            # column directly instead of relying on a separate sync step.
             cursor.execute(
-                "UPDATE sds SET category_id = ?, category_raw = ?, category = ? "
-                "WHERE id = ? AND (manually_overridden = 0 OR manually_overridden IS NULL)",
-                (cat_id, category, category, sds_id)
+                "UPDATE sds SET category_id = ?, category_raw = ? WHERE id = ?",
+                (cat_id, category, sds_id)
             )
             conn.commit()
 
