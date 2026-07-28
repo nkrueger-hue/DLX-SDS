@@ -1,5 +1,5 @@
 import sqlite3
-from flask import Flask, make_response, render_template_string, request, send_file, redirect
+from flask import Flask, make_response, render_template_string, request, send_file, redirect, jsonify
 import os
 from admin import admin_bp
 
@@ -618,7 +618,40 @@ def home():
     )
 
 
-@app.route("/pdf/<int:sds_id>")
+@app.route("/api/search")
+def api_search():
+    q = request.args.get("q", "").strip()
+    if not q:
+        return jsonify({"results": []})
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT id, file_name, revision_date, hazard_codes, category
+        FROM sds
+        WHERE file_name LIKE ? OR content LIKE ?
+        ORDER BY
+            CASE WHEN file_name LIKE ? THEN 1 ELSE 2 END,
+            file_name
+        LIMIT 5
+    """, (f"%{q}%", f"%{q}%", f"%{q}%"))
+    rows = cursor.fetchall()
+    conn.close()
+
+    results = [
+        {
+            "id": row[0],
+            "productName": row[1].replace(".pdf", "").replace(".PDF", ""),
+            "revisionDate": row[2],
+            "hazardCodes": row[3],
+            "category": row[4],
+            "pdfPath": f"/pdf/{row[0]}"
+        }
+        for row in rows
+    ]
+    return jsonify({"results": results})
+    
+    @app.route("/pdf/<int:sds_id>")
 def get_pdf(sds_id):
     try:
         conn   = sqlite3.connect(DB_PATH)
