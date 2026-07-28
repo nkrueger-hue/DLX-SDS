@@ -651,7 +651,7 @@ def api_search():
     ]
     return jsonify({"results": results})
     
-    @app.route("/pdf/<int:sds_id>")
+@app.route("/pdf/<int:sds_id>")
 def get_pdf(sds_id):
     try:
         conn   = sqlite3.connect(DB_PATH)
