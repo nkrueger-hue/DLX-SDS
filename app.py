@@ -621,8 +621,47 @@ def home():
 @app.route("/api/search")
 def api_search():
     q = request.args.get("q", "").strip()
-    if not q:
+    words = [w for w in q.split() if len(w) > 2][:8]
+    if not words:
         return jsonify({"results": []})
+
+    or_clauses = " OR ".join(["(file_name LIKE ? OR content LIKE ?)"] * len(words))
+    or_params = []
+    for w in words:
+        or_params.extend([f"%{w}%", f"%{w}%"])
+
+    score_clauses = " + ".join(
+        ["(CASE WHEN file_name LIKE ? THEN 2 WHEN content LIKE ? THEN 1 ELSE 0 END)"] * len(words)
+    )
+    score_params = []
+    for w in words:
+        score_params.extend([f"%{w}%", f"%{w}%"])
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(f"""
+        SELECT id, file_name, revision_date, hazard_codes, category,
+               ({score_clauses}) as score
+        FROM sds
+        WHERE {or_clauses}
+        ORDER BY score DESC, file_name
+        LIMIT 5
+    """, score_params + or_params)
+    rows = cursor.fetchall()
+    conn.close()
+
+    results = [
+        {
+            "id": row[0],
+            "productName": row[1].replace(".pdf", "").replace(".PDF", ""),
+            "revisionDate": row[2],
+            "hazardCodes": row[3],
+            "category": row[4],
+            "pdfPath": f"/pdf/{row[0]}"
+        }
+        for row in rows
+    ]
+    return jsonify({"results": results})
 
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
